@@ -1,45 +1,66 @@
 // snn_core.v
-// Instantiates the full SNN: 2 inputs → 4 hidden LIF → 3 output LIF.
+// ──────────────────────────────────────────────────────────────────────────────
+// Full two-layer LIF spiking neural network: 3 inputs → 6 hidden → 3 outputs.
 //
-// IMPORTANT: Replace the placeholder localparam weight values below with
-// the Q8 values printed by export/export_weights.py after training.
-// The file export/weights_q8.vh contains the exact block to paste here.
+// Inputs  (in_spike[2:0]):  rate-encoded binary spike trains for F1, F2, F3
+// Outputs (out_spike[2:0]): [0]=Neuron A  [1]=Neuron B  [2]=Noise
+//
+// Weights are Q8 signed 8-bit integers (float × 128, clipped to [-128,127]).
+// Run export/export_weights.py after training to generate the correct values
+// and paste them between the markers below.
+//
+// Weighted input computation per neuron h:
+//   weighted_h[h] = Σ_{i=0}^{2}  W_IH[h][i] × in_spike[i]
+//
+// Since in_spike[i] is binary (0 or 1), this is a conditional sum —
+// W_IH[h][i] is added only when input neuron i fires that cycle.
+// Vivado synthesizes this as LUT-based adders, consuming zero DSP blocks.
 
 module snn_core (
     input  wire       clk,
     input  wire       rst,
-    input  wire [1:0] in_spike,    // rate-encoded input spikes
-    output wire [2:0] out_spike    // [0]=NeuronA  [1]=NeuronB  [2]=Noise
+    input  wire [2:0] in_spike,     // [0]=F1  [1]=F2  [2]=F3 (rate-encoded)
+    output wire [2:0] out_spike     // [0]=A   [1]=B   [2]=N
 );
 
-    // ── PASTE Q8 WEIGHTS HERE (from export/weights_q8.vh) ─────────────────
-    // W_IH: hidden layer  [4 neurons x 2 inputs]
-    localparam signed [7:0] W_IH [0:3][0:1] = '{
-        '{  87,  12 },   // H0
-        '{ -23, 102 },   // H1
-        '{  64, -44 },   // H2
-        '{  31,  78 }    // H3
+    // ── PASTE EXPORTED Q8 WEIGHTS HERE ────────────────────────────────────────
+    // Replace the placeholder values below with the output of:
+    //   python export/export_weights.py
+    // The file export/weights_q8.vh contains the exact block to paste.
+
+    // W_IH [6 hidden × 3 inputs]
+    localparam signed [7:0] W_IH [0:5][0:2] = '{
+        '{   42,  -62,   45 },   // H0
+        '{  -22,    9,   32 },   // H1
+        '{   13,  -29,   68 },   // H2
+        '{  -34,  -27,  -77 },   // H3
+        '{   41,  -21,  -21 },   // H4
+        '{   26,  -21,  -71 }   // H5
     };
 
-    // W_HO: output layer  [3 neurons x 4 hidden]
-    localparam signed [7:0] W_HO [0:2][0:3] = '{
-        '{  95, -12,  33, -50 },  // O0 → Neuron A
-        '{ -30,  88, -20,  61 },  // O1 → Neuron B
-        '{  10,  15,  92,  22 }   // O2 → Noise
+    // W_HO [3 outputs × 6 hidden]
+    localparam signed [7:0] W_HO [0:2][0:5] = '{
+        '{   47,   38,  -57,    8,  -12,  -25 },   // O0
+        '{  -21,  -40,   51,   47,   32,  -47 },   // O1
+        '{   50,   43,   61,  -42, -128, -120 }   // O2
     };
-    // ──────────────────────────────────────────────────────────────────────
+    // ── END WEIGHTS ───────────────────────────────────────────────────────────
 
-    wire [3:0]          h_spike;
-    wire signed [15:0]  weighted_h [0:3];
-    wire signed [15:0]  weighted_o [0:2];
+    wire [5:0]         h_spike;
+    wire signed [15:0] weighted_h [0:5];
+    wire signed [15:0] weighted_o [0:2];
 
-    // ── Hidden Layer (2 inputs → 4 LIF neurons) ───────────────────────────
+    // ── Hidden layer: 3 inputs → 6 LIF neurons ────────────────────────────────
     genvar h;
     generate
-        for (h = 0; h < 4; h = h + 1) begin : hidden_layer
+        for (h = 0; h < 6; h = h + 1) begin : hidden_layer
+
+            // Sign-extend 8-bit weights to 16 bits before multiply
+            // in_spike[i] is 1-bit binary so multiply = conditional add
             assign weighted_h[h] =
                 $signed({{8{W_IH[h][0][7]}}, W_IH[h][0]}) * $signed({7'b0, in_spike[0]}) +
-                $signed({{8{W_IH[h][1][7]}}, W_IH[h][1]}) * $signed({7'b0, in_spike[1]});
+                $signed({{8{W_IH[h][1][7]}}, W_IH[h][1]}) * $signed({7'b0, in_spike[1]}) +
+                $signed({{8{W_IH[h][2][7]}}, W_IH[h][2]}) * $signed({7'b0, in_spike[2]});
 
             lif_neuron #(
                 .THRESHOLD  (128),
@@ -54,15 +75,18 @@ module snn_core (
         end
     endgenerate
 
-    // ── Output Layer (4 hidden → 3 LIF neurons) ───────────────────────────
+    // ── Output layer: 6 hidden → 3 LIF neurons ────────────────────────────────
     genvar o;
     generate
         for (o = 0; o < 3; o = o + 1) begin : output_layer
+
             assign weighted_o[o] =
                 $signed({{8{W_HO[o][0][7]}}, W_HO[o][0]}) * $signed({7'b0, h_spike[0]}) +
                 $signed({{8{W_HO[o][1][7]}}, W_HO[o][1]}) * $signed({7'b0, h_spike[1]}) +
                 $signed({{8{W_HO[o][2][7]}}, W_HO[o][2]}) * $signed({7'b0, h_spike[2]}) +
-                $signed({{8{W_HO[o][3][7]}}, W_HO[o][3]}) * $signed({7'b0, h_spike[3]});
+                $signed({{8{W_HO[o][3][7]}}, W_HO[o][3]}) * $signed({7'b0, h_spike[3]}) +
+                $signed({{8{W_HO[o][4][7]}}, W_HO[o][4]}) * $signed({7'b0, h_spike[4]}) +
+                $signed({{8{W_HO[o][5][7]}}, W_HO[o][5]}) * $signed({7'b0, h_spike[5]});
 
             lif_neuron #(
                 .THRESHOLD  (128),
