@@ -35,12 +35,14 @@ def spike_waveform(tau_i, tau_d, n_points=WINDOW_SIZE, fs=FS):
         # Degenerate case τ_i == τ_d
         waveform = (t / tau_d) * np.exp(-t / tau_d)
 
-    # Normalize peak to 1.0 (hardware amplitude handled by generator + divider)
+    # Rectification 
+    waveform = np.maximum(waveform, 0.0)
+
+    # Normalize peak
     peak = np.max(np.abs(waveform))
     if peak > 0:
         waveform /= peak
     return waveform
-
 
 # ── Feature extraction — mirrors spike_detector.v exactly ─────────────────────
 def extract_features(waveform, threshold=THRESHOLD):
