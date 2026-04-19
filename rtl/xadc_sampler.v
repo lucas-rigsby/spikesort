@@ -1,60 +1,51 @@
 // xadc_sampler.v
-// ──────────────────────────────────────────────────────────────────────────────
-// Instantiates the Artix-7 XADC primitive for single-channel continuous
-// sampling on VAUXP[0]/VAUXN[0] — physically connected to JXADC pins J3/K3
-// on the Basys-3 board.
+// Artix-7 XADC — single channel continuous mode on VAUXP[0]/VAUXN[0].
+// Physical pins: J3 (VP, signal) and K3 (VN, GND ref) on JXADC header.
 //
-// IMPORTANT: The VAUXP[0]/VAUXN[0] analog inputs are dedicated XADC pins.
-// They do NOT appear as top-level Verilog ports and are NOT constrained in
-// the XDC file. Vivado resolves them automatically from the primitive
-// instantiation. Attempting to add PACKAGE_PIN or IOSTANDARD constraints
-// for J3/K3 in the XDC causes errors [Common 17-69] and [Constraints 18-1063].
+// No XDC constraints are needed for J3/K3.  The XADC analog inputs are
+// dedicated pads resolved automatically by Vivado from the primitive
+// instantiation.  Adding PACKAGE_PIN or IOSTANDARD constraints for these
+// pins causes [Common 17-69] and [Constraints 18-1063] errors.
 //
-// Physical connections on the breadboard:
-//   J3 (VAUXP[0]) = VP  — analog signal input, 0-1V unipolar
-//   K3 (VAUXN[0]) = VN  — reference, connect to GND
-//   External filter: 100 ohm series resistor + 10nF differential cap
-//
-// Configuration:
-//   Mode:        Single channel, continuous
-//   Channel:     VAUX0 (DRP address 0x10)
-//   ADC clock:   100 MHz / 4 = 25 MHz  -> ~960 KSPS
-//   Resolution:  12-bit, unipolar 0-1V
+// sample_valid is a ONE-CYCLE pulse at 100 MHz (~960 KSPS).
+// The spike_detector runs at 1 MHz — see spike_sorter_top.v for the
+// stretch logic that makes this pulse visible across the clock boundary.
 
 module xadc_sampler (
-    input  wire        clk,
+    input  wire        clk,           // 100 MHz system clock
     input  wire        rst,
-    output reg  [11:0] sample,
-    output reg         sample_valid
+    output reg  [11:0] sample,        // 12-bit result: 0x000=0V, 0xFFF=1V
+    output reg         sample_valid   // one-cycle strobe at 100 MHz
 );
 
     wire [15:0] do_out;
     wire        drdy_out;
     wire        eoc_out;
+
+    // All output ports declared to suppress [Synth 8-7071] warnings
     wire        eos_out;
     wire        busy_out;
     wire [4:0]  channel_out;
+    wire [7:0]  alm_out;
+    wire        ot_out;
+    wire        jtagbusy_out;
+    wire        jtaglocked_out;
+    wire        jtagmodified_out;
+    wire [4:0]  muxaddr_out;
 
     XADC #(
-        // Configuration Register 0
-        // [13:12]=00 single channel, [8]=1 auxiliary input enable
+        // INIT_40: single channel mode, auxiliary inputs enabled
         .INIT_40 (16'h9000),
-
-        // Configuration Register 1
-        // [15:12]=0001 continuous, [5:0]=010000 channel addr 0x10 = VAUX0
+        // INIT_41: continuous sampling, channel address 0x10 = VAUX0
         .INIT_41 (16'h10C0),
-
-        // Configuration Register 2
-        // [15:8]=0x04 ADC clock divider = 4 -> 25 MHz ADC clock -> ~960 KSPS
+        // INIT_42: ADC clock divider = 4 -> f_ADC = 25 MHz -> ~960 KSPS
         .INIT_42 (16'h0400),
-
         .INIT_43 (16'h0000),
         .INIT_44 (16'h0000),
         .INIT_45 (16'h0000),
         .INIT_46 (16'h0000),
         .INIT_47 (16'h0000),
-
-        // Sequencer channel enable: bit[1]=1 enables VAUX0
+        // INIT_48: sequencer channel enable, bit[1] = VAUX0
         .INIT_48 (16'h0002),
         .INIT_49 (16'h0000),
         .INIT_4A (16'h0000),
@@ -63,55 +54,45 @@ module xadc_sampler (
         .INIT_4D (16'h0000),
         .INIT_4E (16'h0000),
         .INIT_4F (16'h0000),
-
-        // Alarm thresholds (Xilinx defaults, alarms not used)
-        .INIT_50 (16'hB5ED),
-        .INIT_51 (16'h57E4),
-        .INIT_52 (16'hA147),
-        .INIT_53 (16'hCA33),
-        .INIT_54 (16'hA93A),
-        .INIT_55 (16'h52C6),
-        .INIT_56 (16'h9555),
-        .INIT_57 (16'hAE4E),
-        .INIT_58 (16'h5999),
-        .INIT_5C (16'h5111),
-
+        // Alarm thresholds — Xilinx defaults, not used
+        .INIT_50 (16'hB5ED), .INIT_51 (16'h57E4),
+        .INIT_52 (16'hA147), .INIT_53 (16'hCA33),
+        .INIT_54 (16'hA93A), .INIT_55 (16'h52C6),
+        .INIT_56 (16'h9555), .INIT_57 (16'hAE4E),
+        .INIT_58 (16'h5999), .INIT_5C (16'h5111),
         .SIM_MONITOR_FILE ("design.txt")
     ) xadc_inst (
-        .DCLK      (clk),
-        .RESET     (rst),
-
-        // Analog inputs — VAUXP/VAUXN are 16-bit buses
-        // VAUX0 is bit[0]. These ports connect directly to the
-        // dedicated analog pads; no XDC constraint needed or allowed.
-        .VAUXP     (16'b0000000000000001),  // VAUXP[0] tied high internally
-        .VAUXN     (16'b0000000000000000),  // VAUXN[0] tied low internally
-        .VP        (1'b0),
-        .VN        (1'b0),
-
-        // DRP interface — read result on every end-of-conversion
-        .DADDR     (7'h10),      // VAUX0 result register address
-        .DEN       (eoc_out),    // trigger read on EOC
-        .DWE       (1'b0),
-        .DI        (16'h0000),
-        .DO        (do_out),     // [15:4] = 12-bit result, left-aligned
-        .DRDY      (drdy_out),
-
-        // Unused conversion control
-        .CONVST    (1'b0),
-        .CONVSTCLK (1'b0),
-
-        // Status outputs
-        .EOC       (eoc_out),
-        .EOS       (eos_out),
-        .BUSY      (busy_out),
-        .CHANNEL   (channel_out),
-        .ALM       ()
+        .DCLK         (clk),
+        .RESET        (rst),
+        // Analog inputs — dedicated pads, no XDC entry needed
+        .VAUXP        (16'b0000000000000001),
+        .VAUXN        (16'b0000000000000000),
+        .VP           (1'b0),
+        .VN           (1'b0),
+        // DRP interface — read result on every EOC pulse
+        .DADDR        (7'h10),
+        .DEN          (eoc_out),
+        .DWE          (1'b0),
+        .DI           (16'h0000),
+        .DO           (do_out),
+        .DRDY         (drdy_out),
+        // Conversion control — not used in continuous mode
+        .CONVST       (1'b0),
+        .CONVSTCLK    (1'b0),
+        // Status outputs — all connected to suppress unconnected warnings
+        .EOC          (eoc_out),
+        .EOS          (eos_out),
+        .BUSY         (busy_out),
+        .CHANNEL      (channel_out),
+        .ALM          (alm_out),
+        .OT           (ot_out),
+        .JTAGBUSY     (jtagbusy_out),
+        .JTAGLOCKED   (jtaglocked_out),
+        .JTAGMODIFIED (jtagmodified_out),
+        .MUXADDR      (muxaddr_out)
     );
 
-    // Latch 12-bit result on data-ready strobe
-    // XADC result is left-aligned in [15:4]; right-shift by 4 to extract
-    // 0x000 = 0V, 0x800 = 0.5V, 0xFFF = 1V
+    // Latch 12-bit result — XADC left-aligns result in [15:4]
     always @(posedge clk) begin
         if (rst) begin
             sample       <= 12'h000;
