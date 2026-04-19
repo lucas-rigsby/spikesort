@@ -1,33 +1,22 @@
 // spike_sorter_top.v
 // Top-level for SpikeSort on Basys-3 (xc7a35tcpg236-1).
 //
-// ── Clock domains ──────────────────────────────────────────────────────────
-//   clk       100 MHz  XADC, rate encoder, SNN, decoder, display
-//   clk_1mhz    1 MHz  spike detector FSM
+// All logic runs in the single 100 MHz clock domain.
+// The spike detector uses a clock enable (ce_1mhz) that pulses high
+// for one cycle every microsecond, replacing the divided clock approach.
+// This eliminates all clock domain crossing issues:
+//   - sample[11:0] never crosses domains
+//   - feature_valid never crosses domains
+//   - No register-generated clock used as a module clock port
 //
-// ── Clock domain crossing (CDC) fixes ──────────────────────────────────────
-//
-//   CDC 1 — sample_valid (100 MHz -> 1 MHz)
-//     XADC produces a 1-cycle 100 MHz pulse (~10 ns).
-//     The 1 MHz spike detector period is 1000 ns — the pulse would be
-//     missed 99% of the time without stretching.
-//     Fix: set a flag on the 100 MHz edge, clear it after the 1 MHz
-//     domain has seen it (detected via clk_1mhz rising edge in 100 MHz domain).
-//
-//   CDC 2 — feature_valid (1 MHz -> 100 MHz)
-//     feature_valid is a 1-cycle 1 MHz pulse (1000 ns wide = 100 cycles at
-//     100 MHz). This is wide enough to be seen reliably in the 100 MHz
-//     domain — no stretching required. Two flip-flop synchroniser added
-//     for metastability safety.
-//
-// ── LED assignments ────────────────────────────────────────────────────────
-//   led[0]  — SNN output spike: Neuron A  (flickers at spike rate)
-//   led[1]  — SNN output spike: Neuron B
-//   led[2]  — SNN output spike: Noise
-//   led[3]  — classification bit 0  (latched)
-//   led[4]  — spike_seen: latches HIGH after first valid spike detected
-//             Useful for debug: confirms spike detector is triggering.
-//             Press btnC to reset.
+// LED assignments:
+//   led[0] — SNN output spike Neuron A  (flickers at spike rate)
+//   led[1] — SNN output spike Neuron B
+//   led[2] — SNN output spike Noise
+//   led[3] — classification bit 0  (latched, 0=A/noise, 1=B/noise)
+//   led[4] — spike_seen: latches HIGH after first valid spike detected.
+//            If this never lights with signal applied, spike detector is
+//            not triggering — check analog amplitude at JXADC J3.
 
 module spike_sorter_top (
     input  wire        clk,      // W5  100 MHz
@@ -37,52 +26,44 @@ module spike_sorter_top (
     output wire [3:0]  an
 );
 
-    // ── 1 MHz clock divider ────────────────────────────────────────────────
-    reg [5:0] clk_div  = 0;
-    reg       clk_1mhz = 0;
+    // ── 1 µs clock enable ─────────────────────────────────────────────────
+    // Pulses high for exactly one 100 MHz cycle every 100 cycles (= 1 µs).
+    // Passed as 'ce' to spike_detector instead of a divided clock.
+    reg [6:0] ce_ctr   = 0;
+    reg       ce_1mhz  = 0;
 
     always @(posedge clk) begin
         if (btnC) begin
-            clk_div  <= 0;
-            clk_1mhz <= 0;
-        end else if (clk_div == 6'd49) begin
-            clk_div  <= 0;
-            clk_1mhz <= ~clk_1mhz;
+            ce_ctr  <= 0;
+            ce_1mhz <= 1'b0;
+        end else if (ce_ctr == 7'd99) begin
+            ce_ctr  <= 0;
+            ce_1mhz <= 1'b1;
         end else begin
-            clk_div  <= clk_div + 1;
+            ce_ctr  <= ce_ctr + 1;
+            ce_1mhz <= 1'b0;
         end
     end
 
-    // ── XADC ──────────────────────────────────────────────────────────────
+    // ── XADC — 100 MHz domain ─────────────────────────────────────────────
     wire [11:0] sample;
-    wire        sample_valid_100;   // 1-cycle pulse at 100 MHz
+    wire        sample_valid;   // one-cycle 100 MHz pulse
 
     xadc_sampler u_xadc (
         .clk          (clk),
         .rst          (btnC),
         .sample       (sample),
-        .sample_valid (sample_valid_100)
+        .sample_valid (sample_valid)
     );
 
-    // ── CDC 1: stretch sample_valid for 1 MHz domain ───────────────────────
-    // Detect rising edge of clk_1mhz in 100 MHz domain
-    reg clk_1mhz_r = 0;
-    always @(posedge clk) clk_1mhz_r <= clk_1mhz;
-    wire clk_1mhz_rise = clk_1mhz & ~clk_1mhz_r;
-
-    // Set flag on XADC delivery, clear after 1 MHz domain has seen it
-    reg sample_valid_stretched = 0;
-    always @(posedge clk) begin
-        if (btnC)
-            sample_valid_stretched <= 1'b0;
-        else if (sample_valid_100)
-            sample_valid_stretched <= 1'b1;
-        else if (clk_1mhz_rise)
-            sample_valid_stretched <= 1'b0;
-    end
-
-    // ── Spike detector at 1 MHz ────────────────────────────────────────────
-    wire        feature_valid_1mhz;
+    // ── Spike detector — 100 MHz clock, 1 µs clock enable ─────────────────
+    // sample and sample_valid are in the 100 MHz domain.
+    // ce_1mhz gates the FSM so it advances once per microsecond, matching
+    // the XADC ~960 KSPS rate (one sample every ~1.04 µs).
+    // We use sample_valid as ce rather than ce_1mhz so the FSM advances
+    // exactly when a new sample arrives, regardless of minor XADC timing
+    // variation. sample_valid already occurs at ~1 µs intervals.
+    wire        feature_valid;
     wire [7:0]  f1_width, f2_timing, f3_ratio;
 
     spike_detector #(
@@ -90,33 +71,21 @@ module spike_sorter_top (
         .REFRACTORY_CYCLES (10000),
         .THRESHOLD         (200)
     ) u_detect (
-        .clk           (clk_1mhz),
+        .clk           (clk),
         .rst           (btnC),
+        .ce            (sample_valid),   // advance FSM on each XADC sample
         .sample        (sample),
-        .sample_valid  (sample_valid_stretched),
-        .feature_valid (feature_valid_1mhz),
+        .feature_valid (feature_valid),
         .f1_width      (f1_width),
         .f2_timing     (f2_timing),
         .f3_ratio      (f3_ratio)
     );
 
-    // ── CDC 2: synchronise feature_valid into 100 MHz domain ──────────────
-    // feature_valid_1mhz is 1000 ns wide (100 cycles at 100 MHz) so a
-    // 2-FF synchroniser is sufficient — no stretching needed.
-    reg fv_sync1 = 0, fv_sync2 = 0;
-    always @(posedge clk) begin
-        fv_sync1 <= feature_valid_1mhz;
-        fv_sync2 <= fv_sync1;
-    end
-    wire feature_valid = fv_sync2;
-
     // ── Rate encoder ───────────────────────────────────────────────────────
-    // 8-bit Fibonacci LFSR — maximal length 255-cycle sequence
     reg [7:0] lfsr = 8'hAC;
     always @(posedge clk)
         lfsr <= {lfsr[6:0], lfsr[7] ^ lfsr[5] ^ lfsr[4] ^ lfsr[3]};
 
-    // Latch features and run 256-cycle encoding window
     reg [7:0] f1_lat = 0, f2_lat = 0, f3_lat = 0;
     reg       encoding_active = 0;
     reg [7:0] encode_ctr      = 0;
@@ -159,7 +128,7 @@ module spike_sorter_top (
         .out_spike (out_spikes)
     );
 
-    // ── Vote decoder (gated on encoding_active) ────────────────────────────
+    // ── Vote decoder ───────────────────────────────────────────────────────
     wire [1:0] classification;
     wire       result_valid;
 
@@ -184,10 +153,6 @@ module spike_sorter_top (
     );
 
     // ── Spike-seen debug latch ─────────────────────────────────────────────
-    // LED[4] latches HIGH after the first valid feature_valid pulse.
-    // If this LED never lights when a signal is applied, the spike detector
-    // is not triggering — check analog signal amplitude at JXADC J3.
-    // Press btnC to reset this indicator.
     reg spike_seen = 0;
     always @(posedge clk) begin
         if (btnC)
@@ -196,11 +161,11 @@ module spike_sorter_top (
             spike_seen <= 1'b1;
     end
 
-    // ── LED assignments ────────────────────────────────────────────────────
-    assign led[0] = out_spikes[0];      // live Neuron A SNN spike
-    assign led[1] = out_spikes[1];      // live Neuron B SNN spike
-    assign led[2] = out_spikes[2];      // live Noise SNN spike
-    assign led[3] = classification[0];  // latched classification bit 0
-    assign led[4] = spike_seen;         // debug: goes high after first spike
+    // ── LEDs ──────────────────────────────────────────────────────────────
+    assign led[0] = out_spikes[0];
+    assign led[1] = out_spikes[1];
+    assign led[2] = out_spikes[2];
+    assign led[3] = classification[0];
+    assign led[4] = spike_seen;
 
 endmodule
