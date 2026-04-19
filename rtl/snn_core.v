@@ -18,21 +18,18 @@ module snn_core (
 );
 
     // ── PASTE Q8 WEIGHTS HERE (from export/export_weights.py) ────────────
-    // Hidden layer: WH_<neuron>_<input>
-    localparam signed [7:0] WH_0_0 =  87; localparam signed [7:0] WH_0_1 =  12; localparam signed [7:0] WH_0_2 =  34;
-    localparam signed [7:0] WH_1_0 = -23; localparam signed [7:0] WH_1_1 = 102; localparam signed [7:0] WH_1_2 =  -8;
-    localparam signed [7:0] WH_2_0 =  64; localparam signed [7:0] WH_2_1 = -44; localparam signed [7:0] WH_2_2 =  71;
-    localparam signed [7:0] WH_3_0 =  31; localparam signed [7:0] WH_3_1 =  78; localparam signed [7:0] WH_3_2 = -52;
-    localparam signed [7:0] WH_4_0 = -60; localparam signed [7:0] WH_4_1 =  45; localparam signed [7:0] WH_4_2 =  90;
-    localparam signed [7:0] WH_5_0 =  22; localparam signed [7:0] WH_5_1 = -33; localparam signed [7:0] WH_5_2 =  67;
+    // Hidden layer weights: WH_<neuron>_<input>
+    localparam signed [7:0] WH_0_0 =  -54;  localparam signed [7:0] WH_0_1 =  -18;  localparam signed [7:0] WH_0_2 =   32;
+    localparam signed [7:0] WH_1_0 =  -21;  localparam signed [7:0] WH_1_1 =   22;  localparam signed [7:0] WH_1_2 =  -46;
+    localparam signed [7:0] WH_2_0 =   15;  localparam signed [7:0] WH_2_1 =    1;  localparam signed [7:0] WH_2_2 =   50;
+    localparam signed [7:0] WH_3_0 =  -40;  localparam signed [7:0] WH_3_1 =    2;  localparam signed [7:0] WH_3_2 =   88;
+    localparam signed [7:0] WH_4_0 =   79;  localparam signed [7:0] WH_4_1 =   72;  localparam signed [7:0] WH_4_2 =  -16;
+    localparam signed [7:0] WH_5_0 =   41;  localparam signed [7:0] WH_5_1 =   94;  localparam signed [7:0] WH_5_2 =   -1;
 
-    // Output layer: WO_<neuron>_<hidden>
-    localparam signed [7:0] WO_0_0 =  95; localparam signed [7:0] WO_0_1 = -12; localparam signed [7:0] WO_0_2 =  33;
-    localparam signed [7:0] WO_0_3 = -50; localparam signed [7:0] WO_0_4 =  41; localparam signed [7:0] WO_0_5 = -20;
-    localparam signed [7:0] WO_1_0 = -30; localparam signed [7:0] WO_1_1 =  88; localparam signed [7:0] WO_1_2 = -20;
-    localparam signed [7:0] WO_1_3 =  61; localparam signed [7:0] WO_1_4 = -44; localparam signed [7:0] WO_1_5 =  73;
-    localparam signed [7:0] WO_2_0 =  10; localparam signed [7:0] WO_2_1 =  15; localparam signed [7:0] WO_2_2 =  92;
-    localparam signed [7:0] WO_2_3 =  22; localparam signed [7:0] WO_2_4 =  38; localparam signed [7:0] WO_2_5 = -61;
+    // Output layer weights: WO_<neuron>_<hidden>
+    localparam signed [7:0] WO_0_0 =  -27;  localparam signed [7:0] WO_0_1 =    7;  localparam signed [7:0] WO_0_2 =   -5;  localparam signed [7:0] WO_0_3 =  -91;  localparam signed [7:0] WO_0_4 =  106;  localparam signed [7:0] WO_0_5 = -128;
+    localparam signed [7:0] WO_1_0 =  -29;  localparam signed [7:0] WO_1_1 =   -1;  localparam signed [7:0] WO_1_2 =   16;  localparam signed [7:0] WO_1_3 =  -39;  localparam signed [7:0] WO_1_4 =   17;  localparam signed [7:0] WO_1_5 =   -3;
+    localparam signed [7:0] WO_2_0 =  -20;  localparam signed [7:0] WO_2_1 =  -11;  localparam signed [7:0] WO_2_2 =   13;  localparam signed [7:0] WO_2_3 =   68;  localparam signed [7:0] WO_2_4 =    3;  localparam signed [7:0] WO_2_5 =   10;
     // ── END WEIGHTS ───────────────────────────────────────────────────────
 
     // ── Hidden layer weighted sums ────────────────────────────────────────
