@@ -1,15 +1,10 @@
 // lif_neuron.v
-// Discrete-time Leaky Integrate-and-Fire neuron — reusable primitive.
+// Discrete-time Leaky Integrate-and-Fire neuron.
 //
 // Each clock cycle:
-//   if membrane >= THRESHOLD  ->  fire spike, membrane = 0  (hard reset)
+//   if membrane >= THRESHOLD  ->  fire spike, membrane = 0
 //   else                      ->  membrane = membrane - LEAK + weighted_in
-//                                 (clamped at 0)
-//
-// THRESHOLD = 128, LEAK = 2, DATA_WIDTH = 16 bits.
-// Weights are signed 8-bit Q8 integers passed in pre-multiplied from snn_core.
-// Since inputs are binary (0 or 1) the multiply is a conditional add —
-// Vivado synthesises this as LUT arithmetic, consuming zero DSP blocks.
+//                                 clamped at 0 to prevent negative runaway
 
 module lif_neuron #(
     parameter THRESHOLD  = 128,
