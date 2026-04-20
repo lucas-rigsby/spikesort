@@ -1,8 +1,7 @@
 // spike_sorter_top.v
 // Top-level for SpikeSort on Basys-3 (xc7a35tcpg236-1).
-// Single 100 MHz clock domain throughout — no divided clocks.
-// spike_detector uses sample_valid as clock enable (ce).
-//
+// Single 100 MHz clock 
+
 // LEDs:
 //   led[0] SNN output Neuron A  led[1] SNN output Neuron B
 //   led[2] SNN output Noise     led[3] classification[0]
@@ -16,7 +15,7 @@ module spike_sorter_top (
     output wire [3:0]  an
 );
 
-    // ── XADC ──────────────────────────────────────────────────────────────
+    // XADC
     wire [11:0] sample;
     wire        sample_valid;
 
@@ -27,7 +26,7 @@ module spike_sorter_top (
         .sample_valid (sample_valid)
     );
 
-    // ── Spike detector ─────────────────────────────────────────────────────
+    // Spike detector
     wire        feature_valid;
     wire [7:0]  f1_width, f2_timing, f3_ratio;
 
@@ -46,7 +45,7 @@ module spike_sorter_top (
         .f3_ratio      (f3_ratio)
     );
 
-    // ── Rate encoder ───────────────────────────────────────────────────────
+    // Rate encoder
     reg [7:0] lfsr = 8'hAC;
     always @(posedge clk)
         lfsr <= {lfsr[6:0], lfsr[7] ^ lfsr[5] ^ lfsr[4] ^ lfsr[3]};
@@ -82,7 +81,7 @@ module spike_sorter_top (
     assign in_spikes[1] = encoding_active && (lfsr < f2_lat);
     assign in_spikes[2] = encoding_active && (lfsr < f3_lat);
 
-    // ── SNN classifier ─────────────────────────────────────────────────────
+    // SNN classifier
     wire [2:0] out_spikes;
 
     snn_core u_snn (
@@ -92,7 +91,7 @@ module spike_sorter_top (
         .out_spike (out_spikes)
     );
 
-    // ── Vote decoder ───────────────────────────────────────────────────────
+    // Vote decoder
     wire [1:0] classification;
     wire       result_valid;
 
@@ -107,7 +106,7 @@ module spike_sorter_top (
         .result_valid   (result_valid)
     );
 
-    // ── Display ───────────────────────────────────────────────────────────
+    // Display
     seg7_controller u_seg (
         .clk            (clk),
         .classification (classification),
@@ -116,7 +115,7 @@ module spike_sorter_top (
         .an             (an)
     );
 
-    // ── Spike-seen latch ───────────────────────────────────────────────────
+    // Spike-seen latch
     reg spike_seen = 0;
     always @(posedge clk) begin
         if (btnC)

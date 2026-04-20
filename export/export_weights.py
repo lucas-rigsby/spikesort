@@ -1,9 +1,3 @@
-"""
-export_weights.py
-────────────────────────────────────────────────────────────────────────────────
-Run from project root after model/train_snn.py:
-  python export/export_weights.py
-"""
 import numpy as np, torch, json, sys, os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'model'))
 from train_snn import SpikeSorter
@@ -19,7 +13,7 @@ def format_verilog_flat(W_ih, W_ho):
     Paste the printed block between the markers in snn_core.v.
     """
     lines = []
-    lines.append("    // ── PASTE EXPORTED Q8 WEIGHTS HERE ──────────────────────────────────────")
+    lines.append("    // PASTE EXPORTED Q8 WEIGHTS HERE")
     lines.append("    // Hidden layer weights: WH_<neuron>_<input>")
     for h in range(W_ih.shape[0]):
         row = "    " + "  ".join(
@@ -35,7 +29,7 @@ def format_verilog_flat(W_ih, W_ho):
             for h in range(W_ho.shape[1])
         )
         lines.append(row)
-    lines.append("    // ── END WEIGHTS ──────────────────────────────────────────────────────────")
+    lines.append("    //END WEIGHTS")
     return "\n".join(lines)
 
 def export():

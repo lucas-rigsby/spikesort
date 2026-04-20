@@ -1,11 +1,5 @@
 // spike_detector.v
 // Three-state FSM: IDLE -> CAPTURING -> COOLDOWN.
-// Runs at 100 MHz. ce (= sample_valid) gates FSM advancement so it
-// advances once per XADC sample (~960 KSPS = every ~104 clock cycles).
-//
-// F1 overflow fix: result clamped to 255 before 8-bit assignment.
-// Neuron B spike is wider than WINDOW_SIZE so width_ctr reaches 1000,
-// giving (1000*256)/1000 = 256 which would truncate to 0 without clamping.
 
 module spike_detector #(
     parameter WINDOW_SIZE       = 1000,

@@ -1,15 +1,7 @@
-// xadc_sampler.v  — FINAL CORRECTED VERSION
+// xadc_sampler.v
 // Artix-7 XADC, single channel continuous mode on VAUXP[0]/VAUXN[0].
 // Physical pins: J3 (VP, signal 0-1V) and K3 (VN, GND reference).
-// No XDC constraints required for J3/K3.
-//
-// INIT register history of corrections:
-//   INIT_41 was 0x10C0 -> 0x2010 -> NOW 0x3010
-//     bits[15:12] must be 0011 for SINGLE CHANNEL mode.
-//     0010 = continuous sequence (ignores CH field, wrong).
-//     0011 = single channel (converts only the channel in CH field).
-//   INIT_48 was 0x0002 -> NOW 0x0001
-//     bit[0] = VAUX0, bit[1] = VAUX1 (per UG480 Table 4-6).
+
 
 module xadc_sampler (
     input  wire        clk,

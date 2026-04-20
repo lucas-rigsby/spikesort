@@ -3,8 +3,7 @@
 //
 // Each clock cycle:
 //   if membrane >= THRESHOLD  ->  fire spike, membrane = 0
-//   else                      ->  membrane = membrane - LEAK + weighted_in
-//                                 clamped at 0 to prevent negative runaway
+//   else                      ->  membrane = membrane - LEAK + weighted_in > 0
 
 module lif_neuron #(
     parameter THRESHOLD  = 128,

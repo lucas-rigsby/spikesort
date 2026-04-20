@@ -1,10 +1,5 @@
 // output_decoder.v
 // Accumulates SNN output spike counts over VOTE_WINDOW cycles.
-// spike_active gates accumulation — only runs during real spike events.
-//
-// Fix: spike counts are not incremented on the final cycle (vote_ctr ==
-// VOTE_WINDOW-1) to avoid a non-blocking assignment race between
-// count++ and count<=0 in the same clock cycle.
 
 module output_decoder #(
     parameter VOTE_WINDOW = 256

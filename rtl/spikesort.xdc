@@ -1,5 +1,5 @@
-## spikesort.xdc  —  Basys-3 SpikeSort constraints
-##
+## spikesort.xdc
+## Basys-3 SpikeSort constraints
 ## JXADC pins J3/K3 (VAUXP[0]/VAUXN[0]) are NOT constrained here.
 ## The XADC primitive resolves them internally. Any PACKAGE_PIN or
 ## IOSTANDARD entry for these pins causes Vivado errors.
