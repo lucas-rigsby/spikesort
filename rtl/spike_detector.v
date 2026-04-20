@@ -1,21 +1,12 @@
-// spike_detector.v
-// Three-state FSM: IDLE -> CAPTURING -> COOLDOWN.
+// spike_detector.v  — FINAL CORRECTED VERSION
+// Three-state FSM running at 100 MHz with sample_valid as clock enable.
 //
-// Runs entirely in the 100 MHz clock domain using a clock enable (ce)
-// signal that is high once per microsecond. This avoids using a
-// register-generated clock as a module clock, which causes Vivado CDC
-// and timing analysis problems.
-//
-// sample[11:0] and sample_valid are produced by xadc_sampler in the
-// same 100 MHz domain — no clock domain crossing required.
-//
-// Features extracted (Q8 normalised: value * 256 / WINDOW_SIZE):
-//   F1 — spike width   : samples above threshold / WINDOW_SIZE
-//   F2 — peak timing   : index of maximum sample / WINDOW_SIZE
-//   F3 — rise ratio    : above-threshold samples before peak / total above threshold
-//
-// WINDOW_SIZE = 1000 at 1 MSPS = 1 ms capture window
-// REFRACTORY  = 10000 cycles   = 10 ms refractory period
+// F1 overflow fix: result of (width_ctr * 256) / WINDOW_SIZE is computed
+// in 18-bit intermediate and clamped to 255 before storing in 8-bit output.
+// This is critical for Neuron B whose spike (~1.8 ms at 310mV) is wider
+// than the 1 ms capture window — width_ctr reaches WINDOW_SIZE=1000,
+// giving (1000*256)/1000 = 256 which truncated to 8 bits = 0x00 (wrong).
+// Clamping gives 0xFF = 255, correctly indicating a wide spike.
 
 module spike_detector #(
     parameter WINDOW_SIZE       = 1000,
@@ -24,9 +15,9 @@ module spike_detector #(
 )(
     input  wire        clk,
     input  wire        rst,
-    input  wire        ce,            // clock enable: high for 1 cycle per µs
-    input  wire [11:0] sample,        // 12-bit XADC sample (valid when ce=1)
-    output reg         feature_valid, // one-cycle strobe: features ready
+    input  wire        ce,            // high on each XADC sample (sample_valid)
+    input  wire [11:0] sample,
+    output reg         feature_valid,
     output reg  [7:0]  f1_width,
     output reg  [7:0]  f2_timing,
     output reg  [7:0]  f3_ratio
@@ -44,6 +35,9 @@ module spike_detector #(
     reg [9:0]  peak_idx     = 0;
     reg [11:0] peak_val     = 0;
     reg        peaked       = 0;
+
+    // 18-bit intermediate for division result before clamping to 8 bits
+    reg [17:0] f1_raw, f2_raw, f3_raw;
 
     always @(posedge clk) begin
         if (rst) begin
@@ -64,29 +58,25 @@ module spike_detector #(
 
             case (state)
 
-                // ── IDLE ──────────────────────────────────────────────────
                 IDLE: begin
                     if (ce && (sample > THRESHOLD)) begin
                         state      <= CAPTURING;
                         sample_ctr <= 0;
-                        width_ctr  <= 1;    // triggering sample counts
-                        rise_ctr   <= 1;    // triggering sample is pre-peak
+                        width_ctr  <= 1;
+                        rise_ctr   <= 1;
                         peak_idx   <= 0;
                         peak_val   <= sample;
                         peaked     <= 1'b0;
                     end
                 end
 
-                // ── CAPTURING ─────────────────────────────────────────────
                 CAPTURING: begin
                     if (ce) begin
                         sample_ctr <= sample_ctr + 1;
 
-                        // F1: count samples above threshold
                         if (sample > THRESHOLD)
                             width_ctr <= width_ctr + 1;
 
-                        // F2: track index of maximum sample
                         if (sample > peak_val) begin
                             peak_val <= sample;
                             peak_idx <= sample_ctr;
@@ -94,17 +84,31 @@ module spike_detector #(
                             peaked <= 1'b1;
                         end
 
-                        // F3: above-threshold samples before peak
                         if (!peaked && sample > THRESHOLD)
                             rise_ctr <= rise_ctr + 1;
 
                         if (sample_ctr == WINDOW_SIZE - 1) begin
-                            // Compute Q8 features
-                            f1_width  <= (width_ctr * 256) / WINDOW_SIZE;
-                            f2_timing <= (peak_idx  * 256) / WINDOW_SIZE;
-                            f3_ratio  <= (width_ctr > 0) ?
-                                         (rise_ctr  * 256) / width_ctr :
-                                         8'h00;
+
+                            // Compute Q8 features with overflow protection.
+                            // All divisions produce results in range [0, 256].
+                            // Clamp to 255 (8'hFF) if result would overflow 8 bits.
+
+                            // F1: spike width
+                            f1_raw = (width_ctr * 256) / WINDOW_SIZE;
+                            f1_width <= (f1_raw > 255) ? 8'hFF : f1_raw[7:0];
+
+                            // F2: peak timing
+                            f2_raw = (peak_idx * 256) / WINDOW_SIZE;
+                            f2_timing <= (f2_raw > 255) ? 8'hFF : f2_raw[7:0];
+
+                            // F3: rise ratio
+                            if (width_ctr > 0) begin
+                                f3_raw = (rise_ctr * 256) / width_ctr;
+                                f3_ratio <= (f3_raw > 255) ? 8'hFF : f3_raw[7:0];
+                            end else begin
+                                f3_ratio <= 8'h00;
+                            end
+
                             feature_valid <= 1'b1;
                             state         <= COOLDOWN;
                             cooldown_ctr  <= 0;
@@ -112,13 +116,6 @@ module spike_detector #(
                     end
                 end
 
-                // ── COOLDOWN ──────────────────────────────────────────────
-                // Count time regardless of sample_valid / ce.
-                // Using full 100 MHz clock ensures accurate timing.
-                // REFRACTORY_CYCLES is scaled accordingly:
-                //   at 100 MHz, 1 ms = 100000 cycles, 10 ms = 1000000 cycles
-                // However we use ce-gated counting to keep the parameter
-                // meaning consistent (REFRACTORY_CYCLES at 1 MSPS rate).
                 COOLDOWN: begin
                     if (ce) begin
                         if (cooldown_ctr == REFRACTORY_CYCLES - 1)
